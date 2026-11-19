@@ -1,77 +1,31 @@
-const $ = (id) => document.getElementById(id);
-let current = { tabId: null, mode: null, claims: [] };
+import { loadSettings, llmFrom, searchKeys, migrate } from "./lib/settings.js";
+import { PROVIDERS, LLMError } from "./lib/llm.js";
+import { checkText as runText, checkTranscript, fmtTime } from "./lib/pipeline.js";
+import { transcribeWithOpenAI, fetchMedia } from "./lib/transcribe.js";
+import { cachePrune } from "./lib/cache.js";
 
-// ---------- helpers ----------
+const $ = (id) => document.getElementById(id);
+const current = { tabId: null, mode: null, claims: [] };
+
+// ---------- page messaging ----------
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
 }
 
-async function inject(tabId) {
-  await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
-}
-
 async function toPage(tabId, msg) {
-  await inject(tabId);
+  await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
   return chrome.tabs.sendMessage(tabId, msg);
 }
 
-async function api(path, { json, form } = {}) {
-  const st = await loadSettings();
-  const headers = authHeaders(st);
-  let body;
-  if (json) {
-    headers["Content-Type"] = "application/json";
-    body = JSON.stringify(json);
-  } else body = form;
-  let res;
-  try {
-    res = await fetch(serverUrl(st, path), { method: "POST", headers, body });
-  } catch (e) {
-    throw new Error(`Can't reach the fact-check server at ${st.backendUrl}. Is it running? (Settings ⚙️)`);
-  }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error(data.detail || `Server error ${res.status}`);
-    err.needsKey = res.status === 402 || res.status === 401;
-    throw err;
-  }
-  return data;
-}
-
-// Banner: which key pays, or how many free checks are left.
-async function refreshKeyBanner(data) {
-  const st = await loadSettings();
-  const el = $("key-banner");
-  if (st.llmKey) {
-    el.className = "banner own";
-    el.textContent = `Using your ${st.provider === "openai" ? "OpenAI" : "Anthropic"} key`;
-    return;
-  }
-  let left = data?.free_checks_left, free = true;
-  if (left == null) {
-    try {
-      const r = await fetch(serverUrl(st, "/status"), { headers: authHeaders(st) });
-      const s = await r.json();
-      free = s.free_tier;
-      left = s.free_checks_left;
-    } catch {
-      el.hidden = true;
-      return;
-    }
-  }
-  el.className = "banner " + (free && left > 0 ? "free" : "nokey");
-  el.innerHTML = "";
-  el.append(
-    free && left > 0 ? `${left} free check${left === 1 ? "" : "s"} left today. ` : "Add your API key to check claims. ",
-    Object.assign(document.createElement("a"), { href: "#", textContent: "Add your key", onclick: openSettings })
-  );
-  el.hidden = false;
-}
-
+// ---------- UI state ----------
 function openSettings(e) {
   e?.preventDefault();
   chrome.runtime.openOptionsPage();
+}
+
+function settingsLink(text = "Open settings") {
+  return Object.assign(document.createElement("a"), { href: "#", textContent: text, onclick: openSettings });
 }
 
 function setBusy(msg) {
@@ -80,20 +34,29 @@ function setBusy(msg) {
   document.querySelectorAll("#actions button, #upload").forEach((b) => (b.disabled = !!msg));
 }
 
-function showError(msg, withSettingsLink) {
+function showError(msg, withLink) {
   $("error").hidden = !msg;
   $("error").textContent = msg || "";
-  if (msg && withSettingsLink) {
-    $("error").append(" ", Object.assign(document.createElement("a"), { href: "#", textContent: "Open settings", onclick: openSettings }));
+  if (msg && withLink) $("error").append(" ", settingsLink());
+}
+
+async function refreshBanner() {
+  const s = await loadSettings();
+  const el = $("key-banner");
+  el.hidden = false;
+  el.innerHTML = "";
+  if (s.llmKey) {
+    el.className = "banner own";
+    el.textContent = `Using your ${PROVIDERS[s.provider].label} key` + (s.openalexKey ? "" : " · tip: add a free OpenAlex key");
+  } else {
+    el.className = "banner nokey";
+    el.append("Add your Anthropic or OpenAI API key to start. ", settingsLink("Add key"));
   }
 }
 
-let lastData = null;
-
-function fmtTime(sec) {
-  sec = Math.floor(sec);
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
-  return (h ? `${h}:${String(m).padStart(2, "0")}` : `${m}`) + `:${String(s).padStart(2, "0")}`;
+function progress(stage, done, total) {
+  if (stage === "claims") setBusy("Finding claims worth checking...");
+  else setBusy(`Searching research and weighing evidence... ${done}/${total} claims`);
 }
 
 async function run(label, fn) {
@@ -104,25 +67,29 @@ async function run(label, fn) {
   try {
     await fn();
   } catch (e) {
-    showError(e.message || String(e), e.needsKey);
+    showError(e.message || String(e), e instanceof LLMError && e.auth);
   } finally {
     setBusy("");
-    refreshKeyBanner(lastData);
   }
+}
+
+async function getLLM() {
+  const s = await loadSettings();
+  return { s, llm: llmFrom(s) }; // throws a friendly LLMError if no key
 }
 
 // ---------- rendering ----------
 function render(data, mode) {
-  lastData = data;
   current.mode = mode;
   current.claims = data.claims.map((c, i) => ({ id: i + 1, ...c }));
   $("results").innerHTML = "";
   const n = current.claims.length;
+  const cached = current.claims.filter((c) => c.cached).length;
   $("meta").hidden = false;
   $("meta").textContent = n
-    ? `${n} claim${n > 1 ? "s" : ""} checked in ${data.seconds}s` +
-      (data.transcript_method ? ` · transcript from ${data.transcript_method}` : "") +
-      (data.model ? ` · ${data.model}` : "")
+    ? `${n} claim${n > 1 ? "s" : ""} checked in ${data.seconds.toFixed(0)}s` +
+      (cached ? ` · ${cached} from cache` : "") +
+      (data.transcriptMethod ? ` · transcript from ${data.transcriptMethod}` : "")
     : "No research-checkable claims found.";
 
   const tpl = $("claim-tpl");
@@ -135,15 +102,14 @@ function render(data, mode) {
     el.querySelector(".confidence").textContent = c.confidence ? `${c.confidence} confidence` : "";
     el.querySelector(".claim-text").textContent = c.claim;
     el.querySelector(".summary").textContent = c.summary || "";
-    const cav = el.querySelector(".caveats");
-    (c.caveats || []).forEach((t) => {
+    for (const t of c.caveats || []) {
       const li = document.createElement("li");
       li.textContent = t;
-      cav.appendChild(li);
-    });
+      el.querySelector(".caveats").appendChild(li);
+    }
 
     const jump = el.querySelector(".jump");
-    if (mode === "video" && c.timestamp != null) {
+    if (mode === "video" && c.timestamp != null && current.tabId) {
       jump.hidden = false;
       jump.textContent = `▶ ${fmtTime(c.timestamp)}`;
       jump.onclick = () => toPage(current.tabId, { type: "seek", seconds: c.timestamp });
@@ -161,17 +127,15 @@ function render(data, mode) {
     const ul = el.querySelector(".papers");
     for (const p of evidence) {
       const li = document.createElement("li");
-      const st = document.createElement("span");
-      st.className = "stance";
-      st.textContent = p.stance + " ";
-      const a = document.createElement("a");
-      a.href = p.url || "#";
-      a.target = "_blank";
-      a.textContent = `${p.title} (${p.year ?? "n.d."})`;
+      const st = Object.assign(document.createElement("span"), { className: "stance", textContent: p.stance + " " });
+      const a = Object.assign(document.createElement("a"), {
+        href: /^https?:/.test(p.url || "") ? p.url : "#",
+        target: "_blank",
+        rel: "noopener",
+        textContent: `${p.title} (${p.year ?? "n.d."})`,
+      });
       const note = document.createElement("div");
-      note.textContent = [p.note, p.venue, p.citations != null ? `${p.citations} citations` : ""]
-        .filter(Boolean)
-        .join(" · ");
+      note.textContent = [p.note, p.venue, p.citations != null ? `${p.citations} citations` : ""].filter(Boolean).join(" · ");
       li.append(st, a, note);
       ul.appendChild(li);
     }
@@ -181,13 +145,20 @@ function render(data, mode) {
 }
 
 async function highlightOnPage() {
+  if (!current.tabId) return;
   const items = current.claims.map((c) => ({ id: c.id, quote: c.quote, verdict: c.verdict, summary: c.summary }));
   try {
     const found = await toPage(current.tabId, { type: "highlight", items });
     current.claims.forEach((c) => (c.found = !!found?.[c.id]));
-  } catch (e) {
-    /* page may not allow scripts (e.g. chrome:// pages) */
+  } catch {
+    /* page doesn't allow scripts (chrome:// pages, Web Store) */
   }
+}
+
+async function finishPage(data) {
+  current.claims = data.claims.map((c, i) => ({ id: i + 1, ...c }));
+  await highlightOnPage();
+  render({ ...data, claims: current.claims }, "page");
 }
 
 // ---------- actions ----------
@@ -195,19 +166,16 @@ async function checkPage() {
   const tab = await activeTab();
   current.tabId = tab.id;
   await run("Reading the page...", async () => {
+    const { s, llm } = await getLLM();
     let page;
     try {
       page = await toPage(tab.id, { type: "getPage" });
-    } catch (e) {
+    } catch {
       throw new Error("This page can't be read (browser pages and the Web Store are off-limits).");
     }
     if (!page?.text || page.text.length < 50) throw new Error("Couldn't find readable text on this page.");
-    setBusy("Finding claims and searching research papers... (about 30-60 s)");
-    const { maxClaims } = await loadSettings();
-    const data = await api("/check/text", { json: { text: page.text, title: page.title, url: page.url, max_claims: +maxClaims } });
-    current.claims = data.claims.map((c, i) => ({ ...c, id: i + 1 }));
-    await highlightOnPage(); // marks which quotes were found, for "Show on page"
-    render({ ...data, claims: current.claims }, "page");
+    const data = await runText(llm, page, { n: +s.maxClaims || 5, keys: searchKeys(s), onProgress: progress });
+    await finishPage(data);
   });
 }
 
@@ -215,42 +183,58 @@ async function checkVideo() {
   const tab = await activeTab();
   current.tabId = tab.id;
   await run("Looking for captions...", async () => {
+    const { s, llm } = await getLLM();
     const page = await toPage(tab.id, { type: "getPage" });
     const captions = await toPage(tab.id, { type: "getCaptions" });
-    let data;
+    let segments, method;
     if (captions?.segments?.length) {
-      setBusy("Found captions. Finding claims and checking research... (about 1 min)");
-      data = await api("/check/transcript", {
-        json: { segments: captions.segments, title: page.title, url: page.url, max_claims: 8 },
-      });
+      segments = captions.segments;
+      method = "captions";
+    } else if (page.video?.mediaSrc && s.provider === "openai") {
+      setBusy("No captions. Downloading the video to transcribe with your OpenAI key...");
+      const blob = await fetchMedia(page.video.mediaSrc);
+      setBusy("Transcribing with OpenAI...");
+      segments = await transcribeWithOpenAI(blob, "video.mp4", s.llmKey);
+      method = "OpenAI speech-to-text";
+    } else if (page.video?.mediaSrc) {
+      throw new Error("This video has no captions. Transcribing it needs an OpenAI key (switch provider in settings).");
     } else {
-      setBusy("No captions in the page. The server is fetching or transcribing the video... (can take several minutes)");
-      data = await api("/check/video", { json: { url: page.video.fetchableUrl, max_claims: 8 } });
+      throw new Error(
+        "This video has no captions the extension can read, and it streams in a way that can't be downloaded. " +
+          "If you have the file, upload it below (OpenAI key needed)."
+      );
     }
+    const data = await checkTranscript(llm, segments, {
+      title: page.title, n: 8, keys: searchKeys(s), method, onProgress: progress,
+    });
     render(data, "video");
   });
 }
 
 async function checkUpload(file) {
   current.tabId = null;
-  await run(`Uploading ${file.name}...`, async () => {
-    const form = new FormData();
-    form.append("file", file);
-    setBusy("Transcribing and checking... (can take several minutes)");
-    const data = await api("/check/upload?max_claims=8", { form });
+  await run(`Reading ${file.name}...`, async () => {
+    const { s, llm } = await getLLM();
+    if (s.provider !== "openai")
+      throw new Error("Transcribing files needs an OpenAI key. Switch the provider to OpenAI in settings.");
+    setBusy("Transcribing with OpenAI...");
+    const segments = await transcribeWithOpenAI(file, file.name, s.llmKey);
+    const data = await checkTranscript(llm, segments, {
+      title: file.name, n: 8, keys: searchKeys(s), method: "OpenAI speech-to-text", onProgress: progress,
+    });
     render(data, "upload");
   });
+  $("upload").value = "";
 }
 
 async function checkText(text) {
   const tab = await activeTab();
-  current.tabId = tab?.id;
+  current.tabId = tab?.id || null;
   await run("Checking text...", async () => {
     if (text.trim().length < 20) throw new Error("Enter at least a sentence.");
-    const data = await api("/check/text", { json: { text, max_claims: 5 } });
-    current.claims = data.claims.map((c, i) => ({ ...c, id: i + 1 }));
-    if (current.tabId) await highlightOnPage();
-    render({ ...data, claims: current.claims }, "page");
+    const { s, llm } = await getLLM();
+    const data = await runText(llm, { text, title: "" }, { n: +s.maxClaims || 5, keys: searchKeys(s), onProgress: progress });
+    await finishPage(data);
   });
 }
 
@@ -260,14 +244,10 @@ $("check-video").onclick = checkVideo;
 $("check-text").onclick = () => checkText($("custom-text").value);
 $("upload").onchange = (e) => e.target.files[0] && checkUpload(e.target.files[0]);
 $("open-options").onclick = openSettings;
-chrome.storage.onChanged.addListener((changes) => {
-  if (changes.llmKey || changes.provider || changes.backendUrl) refreshKeyBanner();
-});
-refreshKeyBanner();
 
 async function refreshVideoButton() {
-  const tab = await activeTab();
   try {
+    const tab = await activeTab();
     const page = await toPage(tab.id, { type: "getPage" });
     $("check-video").hidden = !page?.video?.hasVideo;
   } catch {
@@ -276,7 +256,7 @@ async function refreshVideoButton() {
 }
 chrome.tabs.onActivated.addListener(refreshVideoButton);
 chrome.tabs.onUpdated.addListener((_id, info) => info.status === "complete" && refreshVideoButton());
-refreshVideoButton();
+chrome.storage.onChanged.addListener((changes) => (changes.llmKey || changes.provider || changes.openalexKey) && refreshBanner());
 
 // Right-click → "Fact-check selected text"
 async function takePendingSelection() {
@@ -287,5 +267,13 @@ async function takePendingSelection() {
   $("custom-text").closest("details").open = true;
   checkText(pendingSelection.text);
 }
-chrome.storage.session.onChanged.addListener((changes) => changes.pendingSelection?.newValue && takePendingSelection());
+chrome.storage.session.onChanged.addListener((c) => c.pendingSelection?.newValue && takePendingSelection());
+
+migrate();
+cachePrune();
+refreshBanner();
+refreshVideoButton();
 takePendingSelection();
+
+// exposed for tests
+window.__fc = { refreshVideoButton };

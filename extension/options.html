@@ -4,22 +4,23 @@
   <meta charset="utf-8" />
   <title>Fact Checker settings</title>
   <style>
-    body { font: 14px system-ui, sans-serif; max-width: 520px; margin: 24px auto; padding: 0 16px; color: #1c1c1e; }
+    body { font: 14px system-ui, sans-serif; max-width: 540px; margin: 24px auto; padding: 0 16px; color: #1c1c1e; }
     h2 { margin-bottom: 4px; }
     h3 { margin: 28px 0 4px; font-size: 15px; }
     label { display: block; margin: 14px 0 4px; font-weight: 600; }
-    input, select { width: 100%; padding: 8px; font: inherit; border: 1px solid #ccc; border-radius: 6px; }
+    input { width: 100%; padding: 8px; font: inherit; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
     small { display: block; color: #666; margin-top: 4px; }
     .radio { display: flex; gap: 16px; margin-top: 6px; }
     .radio label { display: flex; align-items: center; gap: 6px; font-weight: 400; margin: 0; }
     .radio input { width: auto; }
-    .buttons { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
+    .buttons { margin-top: 18px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     button { padding: 8px 14px; font: inherit; border-radius: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
     button.primary { background: #4a6cf7; color: #fff; border-color: #4a6cf7; }
     #result { font-size: 13px; }
     .ok { color: #137333; } .bad { color: #a40000; }
-    .note { background: #f4f6ff; border-radius: 8px; padding: 10px 12px; font-size: 13px; color: #333; margin-top: 12px; }
-    details { margin-top: 28px; }
+    .note { background: #f4f6ff; border-radius: 8px; padding: 10px 12px; font-size: 13px; color: #333; margin-top: 14px; line-height: 1.45; }
+    .note ul { margin: 6px 0 0; padding-left: 18px; }
+    details { margin-top: 24px; }
     summary { cursor: pointer; font-weight: 600; }
   </style>
 </head>
@@ -40,34 +41,42 @@
   <input id="llmModel" spellcheck="false" />
   <small>Leave blank for the default.</small>
 
+  <h3>Paper search key (recommended, free)</h3>
+  <label for="openalexKey">OpenAlex API key</label>
+  <input id="openalexKey" type="password" autocomplete="off" spellcheck="false" />
+  <small>Free in 30 seconds at openalex.org/settings/api. Without it, OpenAlex allows only a few searches a day.</small>
+
   <div class="note">
-    Your key is stored only in this browser and isn't synced. It's sent to the fact-check server
-    with each check, used for that request, and never saved there. Usage is billed to your
-    account with that provider. An OpenAI key is also used to transcribe videos without captions.
+    <strong>Where your key goes:</strong> it's stored only in this browser (not synced) and sent only to
+    your AI provider (api.anthropic.com or api.openai.com). There is no Fact Checker server; the extension's
+    developer never sees your key or what you check.
+    <ul>
+      <li>Create a separate key just for this extension.</li>
+      <li>Set a monthly spend limit on it in your provider's console.</li>
+      <li>If anything looks wrong, delete the key there. It stops working instantly.</li>
+    </ul>
   </div>
 
   <div class="buttons">
     <button id="save" class="primary">Save</button>
     <button id="test">Test key</button>
-    <button id="clear">Remove key</button>
+    <button id="clear">Remove keys</button>
     <span id="result"></span>
   </div>
 
   <details>
-    <summary>Server</summary>
-    <label for="backendUrl">Server URL</label>
-    <input id="backendUrl" placeholder="http://localhost:8000" spellcheck="false" />
-    <small>Where the fact-check server runs. Use http://localhost:8000 for a server on this computer.</small>
-
-    <label for="apiToken">Access token (private servers only)</label>
-    <input id="apiToken" type="password" />
-    <small>Leave blank unless the server owner gave you one.</small>
+    <summary>More</summary>
+    <label for="s2Key">Semantic Scholar API key (optional)</label>
+    <input id="s2Key" type="password" autocomplete="off" spellcheck="false" />
+    <small>Works without one, using a shared public limit.</small>
 
     <label for="maxClaims">Claims to check per page</label>
     <input id="maxClaims" type="number" min="1" max="10" />
+    <small>Each claim costs about 2 AI calls on your key.</small>
+
+    <div class="buttons"><button id="clear-cache">Clear saved results</button></div>
   </details>
 
-  <script src="settings.js"></script>
-  <script src="options.js"></script>
+  <script type="module" src="options.js"></script>
 </body>
 </html>

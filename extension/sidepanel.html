@@ -16,7 +16,7 @@
     <button id="check-page" class="primary">Check this page</button>
     <button id="check-video" hidden>Check the video on this page</button>
     <label class="upload">
-      Upload a video or audio file
+      Transcribe and check a video or audio file (OpenAI key, max 25 MB)
       <input type="file" id="upload" accept="video/*,audio/*" />
     </label>
     <details>
@@ -31,7 +31,10 @@
   <div id="meta" hidden></div>
   <ol id="results"></ol>
 
-  <footer>Verdicts are AI summaries of research abstracts, not final rulings. Read the papers.</footer>
+  <footer>
+    Runs entirely in your browser: your key goes only to your AI provider.
+    Verdicts are AI summaries of research abstracts, not final rulings. Read the papers.
+  </footer>
 
   <template id="claim-tpl">
     <li class="claim">
@@ -50,7 +53,6 @@
     </li>
   </template>
 
-  <script src="settings.js"></script>
-  <script src="sidepanel.js"></script>
+  <script type="module" src="sidepanel.js"></script>
 </body>
 </html>

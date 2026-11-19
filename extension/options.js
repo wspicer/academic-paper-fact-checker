@@ -1,9 +1,13 @@
+import { loadSettings, saveSettings, llmFrom } from "./lib/settings.js";
+import { PROVIDERS, callLLM } from "./lib/llm.js";
+import { cacheClear } from "./lib/cache.js";
+
 const $ = (id) => document.getElementById(id);
 const HELP = {
   anthropic: "Create one at console.anthropic.com → API keys. Starts with sk-ant-",
-  openai: "Create one at platform.openai.com → API keys. Starts with sk-",
+  openai: "Create one at platform.openai.com → API keys. Starts with sk-. Also lets you transcribe videos without captions.",
 };
-const MODEL_DEFAULTS = { anthropic: "claude-sonnet-5-5", openai: "gpt-5.6-sol" };
+const clean = (v) => v.trim().replace(/^['"]|['"]$/g, "");
 
 function provider() {
   return document.querySelector("input[name=provider]:checked")?.value || "anthropic";
@@ -11,7 +15,7 @@ function provider() {
 
 function showProvider() {
   $("key-help").textContent = HELP[provider()];
-  $("llmModel").placeholder = MODEL_DEFAULTS[provider()];
+  $("llmModel").placeholder = PROVIDERS[provider()].defaultModel;
 }
 
 function say(msg, ok) {
@@ -30,25 +34,23 @@ function looksWrong(p, key) {
 async function init() {
   const s = await loadSettings();
   document.querySelector(`input[name=provider][value=${s.provider}]`).checked = true;
-  $("llmKey").value = s.llmKey;
-  $("llmModel").value = s.llmModel;
-  $("backendUrl").value = s.backendUrl;
-  $("apiToken").value = s.apiToken;
-  $("maxClaims").value = s.maxClaims;
+  for (const f of ["llmKey", "llmModel", "openalexKey", "s2Key", "maxClaims"]) $(f).value = s[f];
   showProvider();
 }
 
 async function save() {
   const p = provider();
-  const key = $("llmKey").value.trim().replace(/^['"]|['"]$/g, "");
-  $("llmKey").value = key;
-  const warning = looksWrong(p, key);
-  await chrome.storage.local.set({ provider: p, llmKey: key, llmModel: $("llmModel").value.trim() });
-  await chrome.storage.sync.set({
-    backendUrl: $("backendUrl").value.trim() || SYNC_DEFAULTS.backendUrl,
-    apiToken: $("apiToken").value.trim(),
+  const values = {
+    provider: p,
+    llmKey: clean($("llmKey").value),
+    llmModel: clean($("llmModel").value),
+    openalexKey: clean($("openalexKey").value),
+    s2Key: clean($("s2Key").value),
     maxClaims: Math.max(1, Math.min(10, parseInt($("maxClaims").value, 10) || 5)),
-  });
+  };
+  for (const f of ["llmKey", "llmModel", "openalexKey", "s2Key"]) $(f).value = values[f];
+  await saveSettings(values);
+  const warning = looksWrong(p, values.llmKey);
   warning ? say(`Saved, but: ${warning}`, false) : say("Saved ✓", true);
 }
 
@@ -58,11 +60,11 @@ async function test() {
   if (!s.llmKey) return say("Enter a key first.", false);
   say("Testing…", true);
   try {
-    const res = await fetch(serverUrl(s, "/check/key"), { method: "POST", headers: authHeaders(s) });
-    const data = await res.json().catch(() => ({}));
-    res.ok ? say(`Key works ✓ (${data.model})`, true) : say(data.detail || `Server error ${res.status}`, false);
-  } catch {
-    say(`Can't reach the server at ${s.backendUrl}.`, false);
+    const llm = llmFrom(s);
+    await callLLM(llm, 'Reply with the JSON {"ok": true}.', "ping", 20);
+    say(`Key works ✓ (${llm.model})`, true);
+  } catch (e) {
+    say(e.message, false);
   }
 }
 
@@ -76,8 +78,12 @@ document.querySelectorAll("input[name=provider]").forEach(
 $("save").onclick = save;
 $("test").onclick = test;
 $("clear").onclick = async () => {
-  $("llmKey").value = "";
-  await chrome.storage.local.set({ llmKey: "" });
-  say("Key removed.", true);
+  for (const f of ["llmKey", "openalexKey", "s2Key"]) $(f).value = "";
+  await saveSettings({ llmKey: "", openalexKey: "", s2Key: "" });
+  say("Keys removed from this browser.", true);
+};
+$("clear-cache").onclick = async () => {
+  await cacheClear();
+  say("Saved results cleared.", true);
 };
 init();

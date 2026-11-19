@@ -43,7 +43,8 @@
       hasVideo: !!v || isYouTube(),
       isYouTube: isYouTube(),
       // blob: URLs (streaming players) can't be fetched by the server; use the page URL.
-      fetchableUrl: isYouTube() || !src || src.startsWith("blob:") ? location.href : src,
+      // Direct file URL we can download for transcription (not blob:/streaming players).
+      mediaSrc: !isYouTube() && /^https?:/.test(src) ? src : null,
       duration: v && isFinite(v.duration) ? v.duration : null,
     };
   }

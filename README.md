@@ -1,72 +1,75 @@
 # Science Fact Checker
 
-Fact-check claims on any web page or video against published research
-(OpenAlex + Semantic Scholar). Users bring their own Anthropic or OpenAI key.
-
-```
-extension/   Chrome extension (side panel): check page, check video, upload file, check selection
-backend/     FastAPI server the extension talks to
-web/         Optional standalone Streamlit app for single claims
-```
+A Chrome extension that fact-checks claims on any web page or video against published research,
+using a retrieval-augmented generation (RAG) pipeline that runs **entirely in the browser**.
+Users bring their own Anthropic or OpenAI key, which goes straight to that provider. There is no
+backend server.
 
 ## How it works
-**Web pages:** the extension reads the article text → the AI picks out the most
-check-worthy research claims (with exact quotes) → each claim is checked: search queries →
-OpenAlex + Semantic Scholar → drop retracted papers → rerank → AI verdict →
-claims are highlighted on the page in green / red / amber / grey.
-
-**Videos**, in order of preference:
-1. Captions read in the browser: YouTube caption tracks, or `<track>` captions on any HTML5 video
-2. Server fetches captions with yt-dlp (works for most video sites)
-3. No captions → server downloads the audio and transcribes it (the user's OpenAI key if they
-   have one, otherwise local Whisper)
-4. Or upload a video/audio file directly
-
-Right-click any selected text → **Fact-check selected text**.
-
-## Who pays for the AI
-| Mode | How |
-|---|---|
-| **Bring your own key** | User picks Anthropic or OpenAI in the extension settings and pastes a key. It's stored only in their browser (not synced), sent with each request, used for that request only, never stored or logged by the server. |
-| **Free tier (optional)** | If the server has `ANTHROPIC_API_KEY`, users without a key get `FREE_CHECKS_PER_DAY` checks (default 3) per install and per IP, with a global daily cap `FREE_CHECKS_GLOBAL_PER_DAY` (default 200). Leave `ANTHROPIC_API_KEY` blank to require users' own keys. |
-
-Default models: `claude-sonnet-5-5` and `gpt-5.6-sol` (users can override in settings;
-server defaults via `ANTHROPIC_MODEL` / `OPENAI_MODEL`). Verdicts are cached per claim and
-model, so a claim checked once is free for the next user.
-
-## 1. Run the server
-Needs Python 3.11+ and ffmpeg (`brew install ffmpeg`).
 ```
-cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env        # add OPENALEX_API_KEY; the rest is optional
-set -a; source .env; set +a
-uvicorn server:app --port 8000
+page text / video captions / uploaded audio
+        │
+        ▼
+ 1. Claim extraction (LLM): the most check-worthy research claims, with exact quotes and timestamps
+        │  for each claim, 3 at a time:
+        ▼
+ 2. Query rewriting (LLM): claim → 2 academic search queries
+ 3. Retrieval: OpenAlex + Semantic Scholar, in parallel
+ 4. Dedupe by DOI, drop retracted papers (OpenAlex retraction flag)
+ 5. Rerank: BM25 over title + abstract, with a small citation-count boost → top 8
+ 6. Grounded verdict (LLM): supported / contradicted / mixed / insufficient evidence,
+    using ONLY the retrieved abstracts, with per-paper stance and caveats
+        │
+        ▼
+ Results in the side panel; claims highlighted on the page or linked to video timestamps
 ```
-Check http://localhost:8000/status.
 
-## 2. Load the extension
-1. `chrome://extensions` → **Developer mode** on → **Load unpacked** → the `extension/` folder
-2. The settings page opens: choose Anthropic or OpenAI, paste your key, click **Test key**
-3. Under **Server**, the URL is `http://localhost:8000` for a local server
-4. Open any article → click the extension icon → **Check this page**
+**Videos:** captions are read in the browser (YouTube caption tracks or HTML5 `<track>`
+captions). Without captions, a direct video file or an uploaded file up to 25 MB is transcribed
+with the user's OpenAI key.
 
-## 3. Publish it
-1. **Host the server** (Render, Railway, Fly.io) with `backend/Dockerfile`; set env vars there.
-   Use HTTPS. Users' keys pass through it.
-2. In `extension/settings.js`, change the default `backendUrl` to your hosted URL.
-3. **Chrome Web Store:** register as a developer, zip the *contents* of `extension/`, upload,
-   and fill in the listing, permission reasons, and privacy disclosures. Your privacy policy
-   should say: page text, video links and the user's API key are sent to your server for the
-   check; keys are not stored; results are cached without any user info.
-4. Set a monthly spend limit in the Anthropic console if you fund a free tier.
+**Caching:** verdicts are cached on the user's device for 7 days, keyed by claim + model.
 
-## Known limits
-- Only claims that research can test (health, science, etc.); news and politics are skipped.
+## Code
+```
+extension/
+  manifest.json        Manifest V3
+  background.js        side panel + right-click menu
+  content.js           reads pages and captions, highlights claims, seeks video
+  sidepanel.*          UI
+  options.*            settings (keys stored in chrome.storage.local)
+  lib/llm.js           Anthropic + OpenAI clients (key only ever sent to the provider's host)
+  lib/search.js        OpenAlex + Semantic Scholar retrieval, dedupe
+  lib/rerank.js        BM25 reranker
+  lib/pipeline.js      claim extraction, query rewriting, verdict, orchestration
+  lib/transcribe.js    OpenAI speech-to-text
+  lib/cache.js         on-device result cache
+```
+
+## Install (development)
+1. `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → choose `extension/`
+2. In settings, choose Anthropic or OpenAI, paste your key, click **Test key**
+3. Add a free OpenAlex key (openalex.org/settings/api); without one, OpenAlex allows only a few searches a day
+4. Open an article → click the extension icon → **Check this page**
+
+## Publish to the Chrome Web Store
+1. Register as a Chrome Web Store developer (one-time fee)
+2. Zip the **contents** of `extension/` and upload it
+3. Listing: description, screenshots, the 128 px icon in `extension/icons/`
+4. Privacy: link to `PRIVACY.md` (e.g. its GitHub URL) and declare that the extension sends
+   user-selected website content to the user's chosen AI provider. Justify the "all sites"
+   permission: it reads the page the user asks to check
+
+## Security model
+- Keys live in `chrome.storage.local` (this browser, never synced) and are only sent to
+  `api.anthropic.com` or `api.openai.com`; `lib/llm.js` refuses any other host.
+- Web pages can't read extension storage, so a malicious page can't take the key. Page text is
+  passed to the model as untrusted data, with instructions to ignore commands inside it.
+- Users are advised to create a dedicated key with a spend limit.
+
+## Limits
+- Only claims research can test (health, science, etc.); news and politics are skipped.
 - Verdicts come from abstracts, not full papers.
-- YouTube often blocks downloads from cloud servers, which is why captions are read in the
-  browser first. Videos without captions work best with the server on your own computer.
-- Local Whisper on CPU takes roughly 0.3-1× the video length; an OpenAI key is much faster.
-- Free-tier limits are per install ID and IP. A determined user can get around them, but
-  the global daily cap still bounds your cost.
+- Streaming videos without captions (most big platforms) can't be downloaded in the browser;
+  upload the file instead.
+- Cost is on the user's key: about 1 + 2×(claims) AI calls per page.
