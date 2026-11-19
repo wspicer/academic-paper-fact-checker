@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header>
+    <h1>🔬 Fact Checker</h1>
+    <a href="#" id="open-options" title="Settings">⚙️</a>
+  </header>
+
+  <section id="actions">
+    <button id="check-page" class="primary">Check this page</button>
+    <button id="check-video" hidden>Check the video on this page</button>
+    <label class="upload">
+      Upload a video or audio file
+      <input type="file" id="upload" accept="video/*,audio/*" />
+    </label>
+    <details>
+      <summary>Check specific text</summary>
+      <textarea id="custom-text" placeholder="Paste text, or right-click selected text on any page → Fact-check selected text"></textarea>
+      <button id="check-text">Check text</button>
+    </details>
+  </section>
+
+  <div id="status" hidden></div>
+  <div id="error" hidden></div>
+  <div id="meta" hidden></div>
+  <ol id="results"></ol>
+
+  <footer>Verdicts are AI summaries of research abstracts, not final rulings. Read the papers.</footer>
+
+  <template id="claim-tpl">
+    <li class="claim">
+      <div class="row">
+        <span class="badge"></span>
+        <span class="confidence"></span>
+        <button class="jump" hidden></button>
+      </div>
+      <p class="claim-text"></p>
+      <p class="summary"></p>
+      <ul class="caveats"></ul>
+      <details class="evidence">
+        <summary></summary>
+        <ul class="papers"></ul>
+      </details>
+    </li>
+  </template>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

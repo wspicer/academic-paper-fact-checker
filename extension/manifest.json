@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Science Fact Checker",
+  "version": "1.0.0",
+  "description": "Fact-check claims on any web page or video against published research.",
+  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "contextMenus"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "action": { "default_title": "Fact-check this page" },
+  "options_page": "options.html"
+}

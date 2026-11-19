@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Fact Checker settings</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; max-width: 480px; margin: 24px auto; }
+    label { display: block; margin: 14px 0 4px; font-weight: 600; }
+    input { width: 100%; padding: 8px; font: inherit; }
+    small { color: #666; }
+    button { margin-top: 16px; padding: 8px 14px; font: inherit; }
+  </style>
+</head>
+<body>
+  <h2>Fact Checker settings</h2>
+  <label for="backendUrl">Server URL</label>
+  <input id="backendUrl" placeholder="http://localhost:8000" />
+  <small>Where the fact-check server runs. Use http://localhost:8000 when running it on your computer.</small>
+
+  <label for="apiToken">Access token</label>
+  <input id="apiToken" type="password" />
+  <small>The API_TOKEN set on the server. Ask whoever runs the server.</small>
+
+  <label for="maxClaims">Claims to check per page</label>
+  <input id="maxClaims" type="number" min="1" max="10" />
+
+  <button id="save">Save</button> <span id="saved"></span>
+  <script src="options.js"></script>
+</body>
+</html>
