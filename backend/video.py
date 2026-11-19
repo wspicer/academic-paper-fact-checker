@@ -107,34 +107,36 @@ def _compress(path: str, tmpdir: str) -> str:
     return out
 
 
-def transcribe(path: str) -> list[dict]:
+def transcribe(path: str, openai_key: str | None = None) -> list[dict]:
+    """Uses the user's OpenAI key if given, else the server's, else local Whisper."""
+    openai_key = openai_key or os.environ.get("OPENAI_API_KEY")
     with tempfile.TemporaryDirectory() as tmpdir:
         audio = _compress(path, tmpdir)
-        if os.environ.get("OPENAI_API_KEY"):
+        if openai_key:
             if os.path.getsize(audio) > OPENAI_LIMIT_BYTES:
                 raise VideoError("Audio is too long for the OpenAI transcription limit.")
             from openai import OpenAI
             with open(audio, "rb") as f:
-                resp = OpenAI().audio.transcriptions.create(
+                resp = OpenAI(api_key=openai_key).audio.transcriptions.create(
                     model="whisper-1", file=f, response_format="verbose_json")
             return [{"start": s.start, "text": s.text} for s in (resp.segments or [])]
         try:
             from faster_whisper import WhisperModel
         except ImportError as e:
-            raise VideoError("No captions found, and no speech-to-text is set up. Set "
-                             "OPENAI_API_KEY or `pip install faster-whisper`.") from e
+            raise VideoError("No captions found, and this server has no speech-to-text set up. "
+                             "Add an OpenAI key in settings to transcribe with it.") from e
         model = WhisperModel(WHISPER_LOCAL_MODEL, device="cpu", compute_type="int8")
         segments, _ = model.transcribe(audio, vad_filter=True)
         return [{"start": s.start, "text": s.text} for s in segments]
 
 
-def get_video_transcript(url: str) -> dict:
+def get_video_transcript(url: str, openai_key: str | None = None) -> dict:
     segments, info = fetch_captions(url)
     if segments:
         return {"segments": segments, "method": "captions", "title": info.get("title", "")}
     with tempfile.TemporaryDirectory() as tmpdir:
         audio = download_audio(url, info, tmpdir)
-        segments = transcribe(audio)
+        segments = transcribe(audio, openai_key)
     if not segments:
         raise VideoError("No speech was detected in this video.")
     return {"segments": segments, "method": "speech-to-text", "title": info.get("title", "")}

@@ -1,5 +1,6 @@
 """Pull check-worthy research claims out of page text or a video transcript."""
-from checker import call_claude, parse_json
+from checker import parse_json
+from llm import LLM, call_llm
 
 MAX_PAGE_CHARS = 60_000
 MAX_TRANSCRIPT_CHARS = 150_000
@@ -61,7 +62,7 @@ def _parse_ts(value) -> float | None:
     return total
 
 
-def extract_claims(text: str, api_key: str, n: int = 5, transcript: bool = False,
+def extract_claims(text: str, llm: LLM, n: int = 5, transcript: bool = False,
                    title: str = "") -> list[dict]:
     limit = MAX_TRANSCRIPT_CHARS if transcript else MAX_PAGE_CHARS
     rule = ("the [m:ss] marker of the line where the claim is made, as a string like \"4:05\""
@@ -69,7 +70,7 @@ def extract_claims(text: str, api_key: str, n: int = 5, transcript: bool = False
     system = EXTRACT_SYSTEM.format(n=n, timestamp_rule=rule)
     kind = "Video transcript" if transcript else "Web page"
     prompt = f"{kind} title: {title or 'unknown'}\n\n{text[:limit]}"
-    data = parse_json(call_claude(system, prompt, api_key, max_tokens=2000))
+    data = parse_json(call_llm(llm, system, prompt, max_tokens=2000))
     out = []
     for c in data.get("claims", [])[:n]:
         if not c.get("claim"):

@@ -1,7 +1,8 @@
 // Clicking the toolbar icon opens the side panel.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === "install") chrome.runtime.openOptionsPage(); // ask for a key on first install
   chrome.contextMenus.create({
     id: "fc-selection",
     title: "Fact-check selected text",

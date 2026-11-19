@@ -33,3 +33,8 @@ textarea { width: 100%; min-height: 80px; margin: 6px 0; font: inherit; padding:
 .papers li { margin: 6px 0; }
 .papers .stance { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
 footer { margin-top: 16px; font-size: 11px; color: var(--muted); }
+.banner { margin: 0 0 10px; padding: 7px 10px; border-radius: 8px; font-size: 13px; }
+.banner.own { background: #eef7ee; color: #1d5e20; }
+.banner.free { background: #f4f6ff; color: #333; }
+.banner.nokey { background: #fff6e0; color: #6b4e00; }
+#error a, .banner a { color: inherit; font-weight: 600; }

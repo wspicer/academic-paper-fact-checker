@@ -4,27 +4,70 @@
   <meta charset="utf-8" />
   <title>Fact Checker settings</title>
   <style>
-    body { font: 14px system-ui, sans-serif; max-width: 480px; margin: 24px auto; }
+    body { font: 14px system-ui, sans-serif; max-width: 520px; margin: 24px auto; padding: 0 16px; color: #1c1c1e; }
+    h2 { margin-bottom: 4px; }
+    h3 { margin: 28px 0 4px; font-size: 15px; }
     label { display: block; margin: 14px 0 4px; font-weight: 600; }
-    input { width: 100%; padding: 8px; font: inherit; }
-    small { color: #666; }
-    button { margin-top: 16px; padding: 8px 14px; font: inherit; }
+    input, select { width: 100%; padding: 8px; font: inherit; border: 1px solid #ccc; border-radius: 6px; }
+    small { display: block; color: #666; margin-top: 4px; }
+    .radio { display: flex; gap: 16px; margin-top: 6px; }
+    .radio label { display: flex; align-items: center; gap: 6px; font-weight: 400; margin: 0; }
+    .radio input { width: auto; }
+    .buttons { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
+    button { padding: 8px 14px; font: inherit; border-radius: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+    button.primary { background: #4a6cf7; color: #fff; border-color: #4a6cf7; }
+    #result { font-size: 13px; }
+    .ok { color: #137333; } .bad { color: #a40000; }
+    .note { background: #f4f6ff; border-radius: 8px; padding: 10px 12px; font-size: 13px; color: #333; margin-top: 12px; }
+    details { margin-top: 28px; }
+    summary { cursor: pointer; font-weight: 600; }
   </style>
 </head>
 <body>
   <h2>Fact Checker settings</h2>
-  <label for="backendUrl">Server URL</label>
-  <input id="backendUrl" placeholder="http://localhost:8000" />
-  <small>Where the fact-check server runs. Use http://localhost:8000 when running it on your computer.</small>
 
-  <label for="apiToken">Access token</label>
-  <input id="apiToken" type="password" />
-  <small>The API_TOKEN set on the server. Ask whoever runs the server.</small>
+  <h3>Your AI key</h3>
+  <div class="radio">
+    <label><input type="radio" name="provider" value="anthropic" /> Anthropic (Claude)</label>
+    <label><input type="radio" name="provider" value="openai" /> OpenAI</label>
+  </div>
 
-  <label for="maxClaims">Claims to check per page</label>
-  <input id="maxClaims" type="number" min="1" max="10" />
+  <label for="llmKey">API key</label>
+  <input id="llmKey" type="password" autocomplete="off" spellcheck="false" />
+  <small id="key-help"></small>
 
-  <button id="save">Save</button> <span id="saved"></span>
+  <label for="llmModel">Model (optional)</label>
+  <input id="llmModel" spellcheck="false" />
+  <small>Leave blank for the default.</small>
+
+  <div class="note">
+    Your key is stored only in this browser and isn't synced. It's sent to the fact-check server
+    with each check, used for that request, and never saved there. Usage is billed to your
+    account with that provider. An OpenAI key is also used to transcribe videos without captions.
+  </div>
+
+  <div class="buttons">
+    <button id="save" class="primary">Save</button>
+    <button id="test">Test key</button>
+    <button id="clear">Remove key</button>
+    <span id="result"></span>
+  </div>
+
+  <details>
+    <summary>Server</summary>
+    <label for="backendUrl">Server URL</label>
+    <input id="backendUrl" placeholder="http://localhost:8000" spellcheck="false" />
+    <small>Where the fact-check server runs. Use http://localhost:8000 for a server on this computer.</small>
+
+    <label for="apiToken">Access token (private servers only)</label>
+    <input id="apiToken" type="password" />
+    <small>Leave blank unless the server owner gave you one.</small>
+
+    <label for="maxClaims">Claims to check per page</label>
+    <input id="maxClaims" type="number" min="1" max="10" />
+  </details>
+
+  <script src="settings.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

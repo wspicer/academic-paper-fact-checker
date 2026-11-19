@@ -10,7 +10,6 @@ import time
 
 import requests
 
-MODEL = "claude-sonnet-5-5"
 OPENALEX_URL = "https://api.openalex.org/works"
 S2_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 UA = {"User-Agent": "science-fact-checker/1.0"}
@@ -39,15 +38,8 @@ def get_secret(name: str) -> str | None:
     return os.environ.get(name)
 
 
-# ---------- Claude helper ----------
-def call_claude(system: str, prompt: str, api_key: str, max_tokens: int = 1500) -> str:
-    import anthropic
-    client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model=MODEL, max_tokens=max_tokens, system=system,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return msg.content[0].text
+# ---------- LLM helper ----------
+from llm import LLM, LLMError, as_llm, call_llm  # noqa: E402
 
 
 def parse_json(text: str) -> dict:
@@ -58,12 +50,14 @@ def parse_json(text: str) -> dict:
 
 
 # ---------- 1. Turn the claim into search queries ----------
-def make_queries(claim: str, api_key: str) -> list[str]:
+def make_queries(claim: str, llm: LLM) -> list[str]:
     system = ("Turn the user's claim into 2 short academic search queries (3-8 words each) "
               "that would find papers supporting OR refuting it. Use scientific terms. "
               'Reply only with JSON: {"queries": ["...", "..."]}')
     try:
-        return parse_json(call_claude(system, claim, api_key, 200))["queries"][:3]
+        return parse_json(call_llm(llm, system, claim, 200))["queries"][:3]
+    except LLMError:
+        raise
     except Exception:
         return [claim]
 
@@ -204,7 +198,7 @@ Reply ONLY with JSON:
  "papers": [{"n": 1, "stance": "supports|contradicts|neutral|irrelevant", "note": "one line"}]}"""
 
 
-def judge(claim: str, papers: list[dict], api_key: str) -> dict:
+def judge(claim: str, papers: list[dict], llm: LLM) -> dict:
     if not papers:
         return {"verdict": "insufficient evidence", "confidence": "low",
                 "summary": "No relevant papers with abstracts were found.",
@@ -213,15 +207,16 @@ def judge(claim: str, papers: list[dict], api_key: str) -> dict:
         f"[{i}] {p['title']} ({p['year']}, {p['venue'] or 'unknown venue'}, "
         f"{p['citations']} citations)\n{p['abstract'][:1500]}"
         for i, p in enumerate(papers, 1))
-    return parse_json(call_claude(VERDICT_SYSTEM,
-                                  f"Claim: {claim}\n\nPapers:\n{evidence}", api_key))
+    return parse_json(call_llm(llm, VERDICT_SYSTEM, f"Claim: {claim}\n\nPapers:\n{evidence}"))
 
 
-def check_claim(claim: str, api_key: str) -> dict:
-    queries = make_queries(claim, api_key)
+def check_claim(claim: str, llm) -> dict:
+    """llm: an LLM, or a bare Anthropic key string."""
+    llm = as_llm(llm)
+    queries = make_queries(claim, llm)
     papers, errors = gather_papers(queries)
     retracted = [p for p in papers if p["retracted"]]
     top = rerank(claim, papers)
-    result = judge(claim, top, api_key)
+    result = judge(claim, top, llm)
     return {"claim": claim, "queries": queries, "papers": top,
             "retracted": retracted, "errors": errors, "result": result}

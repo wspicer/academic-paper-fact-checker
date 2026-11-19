@@ -1,13 +1,7 @@
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { backendUrl: "http://localhost:8000", apiToken: "", maxClaims: 5 };
-
 let current = { tabId: null, mode: null, claims: [] };
 
 // ---------- helpers ----------
-async function settings() {
-  return { ...DEFAULTS, ...(await chrome.storage.sync.get(Object.keys(DEFAULTS))) };
-}
-
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
@@ -23,8 +17,8 @@ async function toPage(tabId, msg) {
 }
 
 async function api(path, { json, form } = {}) {
-  const { backendUrl, apiToken } = await settings();
-  const headers = apiToken ? { "X-API-Token": apiToken } : {};
+  const st = await loadSettings();
+  const headers = authHeaders(st);
   let body;
   if (json) {
     headers["Content-Type"] = "application/json";
@@ -32,13 +26,52 @@ async function api(path, { json, form } = {}) {
   } else body = form;
   let res;
   try {
-    res = await fetch(backendUrl.replace(/\/$/, "") + path, { method: "POST", headers, body });
+    res = await fetch(serverUrl(st, path), { method: "POST", headers, body });
   } catch (e) {
-    throw new Error(`Can't reach the fact-check server at ${backendUrl}. Is it running? (Settings ⚙️)`);
+    throw new Error(`Can't reach the fact-check server at ${st.backendUrl}. Is it running? (Settings ⚙️)`);
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || `Server error ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.detail || `Server error ${res.status}`);
+    err.needsKey = res.status === 402 || res.status === 401;
+    throw err;
+  }
   return data;
+}
+
+// Banner: which key pays, or how many free checks are left.
+async function refreshKeyBanner(data) {
+  const st = await loadSettings();
+  const el = $("key-banner");
+  if (st.llmKey) {
+    el.className = "banner own";
+    el.textContent = `Using your ${st.provider === "openai" ? "OpenAI" : "Anthropic"} key`;
+    return;
+  }
+  let left = data?.free_checks_left, free = true;
+  if (left == null) {
+    try {
+      const r = await fetch(serverUrl(st, "/status"), { headers: authHeaders(st) });
+      const s = await r.json();
+      free = s.free_tier;
+      left = s.free_checks_left;
+    } catch {
+      el.hidden = true;
+      return;
+    }
+  }
+  el.className = "banner " + (free && left > 0 ? "free" : "nokey");
+  el.innerHTML = "";
+  el.append(
+    free && left > 0 ? `${left} free check${left === 1 ? "" : "s"} left today. ` : "Add your API key to check claims. ",
+    Object.assign(document.createElement("a"), { href: "#", textContent: "Add your key", onclick: openSettings })
+  );
+  el.hidden = false;
+}
+
+function openSettings(e) {
+  e?.preventDefault();
+  chrome.runtime.openOptionsPage();
 }
 
 function setBusy(msg) {
@@ -47,10 +80,15 @@ function setBusy(msg) {
   document.querySelectorAll("#actions button, #upload").forEach((b) => (b.disabled = !!msg));
 }
 
-function showError(msg) {
+function showError(msg, withSettingsLink) {
   $("error").hidden = !msg;
   $("error").textContent = msg || "";
+  if (msg && withSettingsLink) {
+    $("error").append(" ", Object.assign(document.createElement("a"), { href: "#", textContent: "Open settings", onclick: openSettings }));
+  }
 }
+
+let lastData = null;
 
 function fmtTime(sec) {
   sec = Math.floor(sec);
@@ -66,14 +104,16 @@ async function run(label, fn) {
   try {
     await fn();
   } catch (e) {
-    showError(e.message || String(e));
+    showError(e.message || String(e), e.needsKey);
   } finally {
     setBusy("");
+    refreshKeyBanner(lastData);
   }
 }
 
 // ---------- rendering ----------
 function render(data, mode) {
+  lastData = data;
   current.mode = mode;
   current.claims = data.claims.map((c, i) => ({ id: i + 1, ...c }));
   $("results").innerHTML = "";
@@ -81,7 +121,8 @@ function render(data, mode) {
   $("meta").hidden = false;
   $("meta").textContent = n
     ? `${n} claim${n > 1 ? "s" : ""} checked in ${data.seconds}s` +
-      (data.transcript_method ? ` · transcript from ${data.transcript_method}` : "")
+      (data.transcript_method ? ` · transcript from ${data.transcript_method}` : "") +
+      (data.model ? ` · ${data.model}` : "")
     : "No research-checkable claims found.";
 
   const tpl = $("claim-tpl");
@@ -162,7 +203,7 @@ async function checkPage() {
     }
     if (!page?.text || page.text.length < 50) throw new Error("Couldn't find readable text on this page.");
     setBusy("Finding claims and searching research papers... (about 30-60 s)");
-    const { maxClaims } = await settings();
+    const { maxClaims } = await loadSettings();
     const data = await api("/check/text", { json: { text: page.text, title: page.title, url: page.url, max_claims: +maxClaims } });
     current.claims = data.claims.map((c, i) => ({ ...c, id: i + 1 }));
     await highlightOnPage(); // marks which quotes were found, for "Show on page"
@@ -218,10 +259,11 @@ $("check-page").onclick = checkPage;
 $("check-video").onclick = checkVideo;
 $("check-text").onclick = () => checkText($("custom-text").value);
 $("upload").onchange = (e) => e.target.files[0] && checkUpload(e.target.files[0]);
-$("open-options").onclick = (e) => {
-  e.preventDefault();
-  chrome.runtime.openOptionsPage();
-};
+$("open-options").onclick = openSettings;
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.llmKey || changes.provider || changes.backendUrl) refreshKeyBanner();
+});
+refreshKeyBanner();
 
 async function refreshVideoButton() {
   const tab = await activeTab();
