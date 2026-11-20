@@ -1,4 +1,4 @@
-import { loadSettings, llmFrom, searchKeys, migrate } from "./lib/settings.js";
+import { loadSettings, modelsFrom, searchKeys, migrate } from "./lib/settings.js";
 import { PROVIDERS, LLMError } from "./lib/llm.js";
 import { checkText as runText, checkTranscript, fmtTime } from "./lib/pipeline.js";
 import { transcribeWithOpenAI, fetchMedia } from "./lib/transcribe.js";
@@ -47,7 +47,10 @@ async function refreshBanner() {
   el.innerHTML = "";
   if (s.llmKey) {
     el.className = "banner own";
-    el.textContent = `Using your ${PROVIDERS[s.provider].label} key` + (s.openalexKey ? "" : " · tip: add a free OpenAlex key");
+    el.textContent =
+      `Using your ${PROVIDERS[s.provider].label} key` +
+      (s.economy ? " · economy mode" : "") +
+      (s.openalexKey ? "" : " · tip: add a free OpenAlex key");
   } else {
     el.className = "banner nokey";
     el.append("Add your Anthropic or OpenAI API key to start. ", settingsLink("Add key"));
@@ -73,9 +76,9 @@ async function run(label, fn) {
   }
 }
 
-async function getLLM() {
+async function getModels() {
   const s = await loadSettings();
-  return { s, llm: llmFrom(s) }; // throws a friendly LLMError if no key
+  return { s, models: modelsFrom(s) }; // throws a friendly LLMError if no key
 }
 
 // ---------- rendering ----------
@@ -89,6 +92,7 @@ function render(data, mode) {
   $("meta").textContent = n
     ? `${n} claim${n > 1 ? "s" : ""} checked in ${data.seconds.toFixed(0)}s` +
       (cached ? ` · ${cached} from cache` : "") +
+      (data.economy ? " · economy mode" : "") +
       (data.transcriptMethod ? ` · transcript from ${data.transcriptMethod}` : "")
     : "No research-checkable claims found.";
 
@@ -166,7 +170,7 @@ async function checkPage() {
   const tab = await activeTab();
   current.tabId = tab.id;
   await run("Reading the page...", async () => {
-    const { s, llm } = await getLLM();
+    const { s, models } = await getModels();
     let page;
     try {
       page = await toPage(tab.id, { type: "getPage" });
@@ -174,7 +178,7 @@ async function checkPage() {
       throw new Error("This page can't be read (browser pages and the Web Store are off-limits).");
     }
     if (!page?.text || page.text.length < 50) throw new Error("Couldn't find readable text on this page.");
-    const data = await runText(llm, page, { n: +s.maxClaims || 5, keys: searchKeys(s), onProgress: progress });
+    const data = await runText(models, page, { n: +s.maxClaims || 5, keys: searchKeys(s), onProgress: progress });
     await finishPage(data);
   });
 }
@@ -183,7 +187,7 @@ async function checkVideo() {
   const tab = await activeTab();
   current.tabId = tab.id;
   await run("Looking for captions...", async () => {
-    const { s, llm } = await getLLM();
+    const { s, models } = await getModels();
     const page = await toPage(tab.id, { type: "getPage" });
     const captions = await toPage(tab.id, { type: "getCaptions" });
     let segments, method;
@@ -196,6 +200,11 @@ async function checkVideo() {
       setBusy("Transcribing with OpenAI...");
       segments = await transcribeWithOpenAI(blob, "video.mp4", s.llmKey);
       method = "OpenAI speech-to-text";
+    } else if (page.video?.isYouTube) {
+      throw new Error(
+        "Couldn't get a transcript for this YouTube video. Check that it has captions (the CC button) " +
+          "and that the page has finished loading, then try again."
+      );
     } else if (page.video?.mediaSrc) {
       throw new Error("This video has no captions. Transcribing it needs an OpenAI key (switch provider in settings).");
     } else {
@@ -204,7 +213,7 @@ async function checkVideo() {
           "If you have the file, upload it below (OpenAI key needed)."
       );
     }
-    const data = await checkTranscript(llm, segments, {
+    const data = await checkTranscript(models, segments, {
       title: page.title, n: 8, keys: searchKeys(s), method, onProgress: progress,
     });
     render(data, "video");
@@ -214,12 +223,12 @@ async function checkVideo() {
 async function checkUpload(file) {
   current.tabId = null;
   await run(`Reading ${file.name}...`, async () => {
-    const { s, llm } = await getLLM();
+    const { s, models } = await getModels();
     if (s.provider !== "openai")
       throw new Error("Transcribing files needs an OpenAI key. Switch the provider to OpenAI in settings.");
     setBusy("Transcribing with OpenAI...");
     const segments = await transcribeWithOpenAI(file, file.name, s.llmKey);
-    const data = await checkTranscript(llm, segments, {
+    const data = await checkTranscript(models, segments, {
       title: file.name, n: 8, keys: searchKeys(s), method: "OpenAI speech-to-text", onProgress: progress,
     });
     render(data, "upload");
@@ -232,8 +241,8 @@ async function checkText(text) {
   current.tabId = tab?.id || null;
   await run("Checking text...", async () => {
     if (text.trim().length < 20) throw new Error("Enter at least a sentence.");
-    const { s, llm } = await getLLM();
-    const data = await runText(llm, { text, title: "" }, { n: +s.maxClaims || 5, keys: searchKeys(s), onProgress: progress });
+    const { s, models } = await getModels();
+    const data = await runText(models, { text, title: "" }, { n: +s.maxClaims || 5, keys: searchKeys(s), onProgress: progress });
     await finishPage(data);
   });
 }
@@ -248,8 +257,8 @@ $("open-options").onclick = openSettings;
 async function refreshVideoButton() {
   try {
     const tab = await activeTab();
-    const page = await toPage(tab.id, { type: "getPage" });
-    $("check-video").hidden = !page?.video?.hasVideo;
+    const video = await toPage(tab.id, { type: "videoInfo" }); // checks for a video only; reads no text
+    $("check-video").hidden = !video?.hasVideo;
   } catch {
     $("check-video").hidden = true;
   }

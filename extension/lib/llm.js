@@ -2,8 +2,18 @@
 // The key is sent ONLY to the provider's own API host, never anywhere else.
 
 export const PROVIDERS = {
-  anthropic: { label: "Anthropic", defaultModel: "claude-sonnet-5-5", host: "https://api.anthropic.com" },
-  openai: { label: "OpenAI", defaultModel: "gpt-5.6-sol", host: "https://api.openai.com" },
+  anthropic: {
+    label: "Anthropic",
+    defaultModel: "claude-sonnet-5-5",
+    fastModel: "claude-haiku-5-5", // economy mode: cheap model for the easy steps
+    host: "https://api.anthropic.com",
+  },
+  openai: {
+    label: "OpenAI",
+    defaultModel: "gpt-5.6-sol",
+    fastModel: "gpt-5.6-luna",
+    host: "https://api.openai.com",
+  },
 };
 
 export class LLMError extends Error {
@@ -18,6 +28,13 @@ export function resolveLLM({ provider, key, model }) {
   if (!PROVIDERS[provider]) throw new LLMError(`Unknown AI provider "${provider}".`);
   if (!key) throw new LLMError(`Add your ${PROVIDERS[provider].label} API key in settings.`, { auth: true });
   return { provider, key, model: model || PROVIDERS[provider].defaultModel };
+}
+
+// The models a check uses: `main` judges evidence; `fast` does the easy steps in economy mode.
+export function resolveModels({ provider, key, model, fastModel, economy }) {
+  const main = resolveLLM({ provider, key, model });
+  const fast = economy ? resolveLLM({ provider, key, model: fastModel || PROVIDERS[provider].fastModel }) : main;
+  return { main, fast, economy: !!economy };
 }
 
 async function post(url, headers, body, provider) {

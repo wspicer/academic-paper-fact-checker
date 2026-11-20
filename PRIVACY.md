@@ -1,9 +1,9 @@
-# Privacy Policy: Science Fact Checker
+# Privacy Policy: Academic Paper Fact Checker
 
-_Last updated: November 18, 2026_
+_Last updated: November 20, 2026_
 
-Science Fact Checker is a Chrome extension that runs entirely in your browser. **There is no
-Science Fact Checker server.** The developer does not receive, store or see your API keys, the
+Academic Paper Fact Checker is a Chrome extension that runs entirely in your browser. **There is no
+Academic Paper Fact Checker server.** The developer does not receive, store or see your API keys, the
 pages you check, or the results.
 
 ## What the extension stores (on your device only)
@@ -24,8 +24,10 @@ Each provider handles that data under its own privacy policy. Your AI key is sen
 AI provider you chose, never to OpenAlex, Semantic Scholar or anyone else.
 
 ## What is not collected
-No analytics, tracking, advertising, or browsing history. The extension reads a page only when
-you click a check button or use the right-click menu on that page.
+No analytics, tracking, advertising, or browsing history. The extension reads a page's text only
+when you click a check button or use the right-click menu on that page. While the side panel is
+open, it checks whether the current page has a video (to show the "Check the video" button); that
+check reads no text and sends nothing anywhere.
 
 ## Permissions
 - **Read and change data on websites:** to read the article or captions you ask to check, and

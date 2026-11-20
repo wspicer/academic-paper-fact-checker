@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Science Fact Checker",
+  "name": "Academic Paper Fact Checker",
   "version": "2.0.0",
-  "description": "Fact-check claims on any web page or video against published research, using your own AI key.",
+  "description": "Fact-check claims on any web page or video against published academic papers, using your own AI key.",
   "permissions": ["activeTab", "scripting", "sidePanel", "storage", "contextMenus"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },

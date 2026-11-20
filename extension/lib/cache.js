@@ -9,8 +9,8 @@ async function hash(text) {
   return [...new Uint8Array(buf)].slice(0, 12).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function cacheKey(claim, llm) {
-  return PREFIX + (await hash(`${llm.provider}|${llm.model}|${claim.trim().toLowerCase()}`));
+export async function cacheKey(claim, llm, mode = "full") {
+  return PREFIX + (await hash(`${llm.provider}|${llm.model}|${mode}|${claim.trim().toLowerCase()}`));
 }
 
 export async function cacheGet(key) {

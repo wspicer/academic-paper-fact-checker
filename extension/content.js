@@ -42,7 +42,6 @@
     return {
       hasVideo: !!v || isYouTube(),
       isYouTube: isYouTube(),
-      // blob: URLs (streaming players) can't be fetched by the server; use the page URL.
       // Direct file URL we can download for transcription (not blob:/streaming players).
       mediaSrc: !isYouTube() && /^https?:/.test(src) ? src : null,
       duration: v && isFinite(v.duration) ? v.duration : null,
@@ -64,8 +63,59 @@
     return null;
   }
 
-  // YouTube captions, read in the browser (avoids YouTube blocking server IPs).
-  async function youTubeCaptions() {
+  // ---------- YouTube ----------
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function parseClock(t) {
+    const parts = String(t || "").trim().split(":").map(Number);
+    if (!parts.length || parts.some(isNaN)) return null;
+    return parts.reduce((acc, p) => acc * 60 + p, 0);
+  }
+
+  // Primary: YouTube's own "Show transcript" panel. Works for manual and auto captions,
+  // even while an ad plays. (Direct caption-file requests now need a token only the
+  // player has, so they come back empty.)
+  async function youTubeTranscriptPanel() {
+    const SEG = "transcript-segment-view-model, ytd-transcript-segment-renderer";
+    const BTN = "ytd-video-description-transcript-section-renderer button, button[aria-label='Show transcript']";
+    let segs = document.querySelectorAll(SEG);
+    let opened = false;
+    if (!segs.length) {
+      // YouTube draws the description (where the button lives) lazily; wait up to ~8 s.
+      let btn = document.querySelector(BTN);
+      for (let i = 0; i < 32 && !btn; i++) {
+        // the button sits inside the collapsed description
+        document.querySelector("#description-inline-expander #expand, tp-yt-paper-button#expand")?.click();
+        await sleep(250);
+        btn = document.querySelector(BTN);
+        if (!btn && i >= 8 && document.querySelector("ytd-watch-metadata #title h1")) break; // loaded, no transcript
+      }
+      if (!btn) return null;
+      btn.click();
+      opened = true;
+      for (let i = 0; i < 48 && !segs.length; i++) {
+        await sleep(250);
+        segs = document.querySelectorAll(SEG);
+      }
+    }
+    const out = [...segs]
+      .map((el) => {
+        const ts = el.querySelector(".ytwTranscriptSegmentViewModelTimestamp, .segment-timestamp")?.textContent;
+        const text = el.querySelector("span[role=text], .segment-text, yt-formatted-string.segment-text")?.textContent;
+        return { start: parseClock(ts), text: (text || "").replace(/\s+/g, " ").trim() };
+      })
+      .filter((s) => s.text && s.start !== null);
+    if (opened) {
+      // put the page back the way it was
+      document
+        .querySelector("ytd-engagement-panel-section-list-renderer[target-id*='transcript'] #visibility-button button")
+        ?.click();
+    }
+    return out.length ? out : null;
+  }
+
+  // Backup: the caption file listed in the page (works only when YouTube doesn't require a token).
+  async function youTubeCaptionFile() {
     try {
       const html = await (await fetch(location.href, { credentials: "include" })).text();
       const m = html.match(/"captionTracks":(\[.*?\])/);
@@ -76,9 +126,11 @@
         tracks.find((t) => t.languageCode?.startsWith("en")) ||
         tracks[0];
       if (!pick) return null;
-      const url = pick.baseUrl.replace(/\\u0026/g, "&") + "&fmt=json3";
-      const data = await (await fetch(url, { credentials: "include" })).json();
-      const segs = (data.events || [])
+      const url = new URL(pick.baseUrl, location.origin);
+      url.searchParams.set("fmt", "json3");
+      const body = await (await fetch(url, { credentials: "include" })).text();
+      if (!body) return null; // token required
+      const segs = (JSON.parse(body).events || [])
         .filter((e) => e.segs)
         .map((e) => ({
           start: (e.tStartMs || 0) / 1000,
@@ -89,6 +141,10 @@
     } catch (e) {
       return null;
     }
+  }
+
+  async function youTubeCaptions() {
+    return (await youTubeTranscriptPanel()) || (await youTubeCaptionFile());
   }
 
   async function getCaptions() {
@@ -192,6 +248,8 @@
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     (async () => {
       switch (msg.type) {
+        case "videoInfo": // used by the side panel to decide whether to show the video button
+          return videoInfo();
         case "getPage":
           return { title: document.title, url: location.href, text: extractMainText(), video: videoInfo() };
         case "getCaptions":
@@ -210,5 +268,5 @@
   });
 
   // Exposed for tests.
-  window.__fc = { extractMainText, highlight, clearHighlights, videoInfo, trackCaptions };
+  window.__fc = { extractMainText, highlight, clearHighlights, videoInfo, trackCaptions, getCaptions };
 })();

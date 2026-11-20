@@ -1,4 +1,4 @@
-# Science Fact Checker
+# Academic Paper Fact Checker
 
 A Chrome extension that fact-checks claims on any web page or video against published research,
 using a retrieval-augmented generation (RAG) pipeline that runs **entirely in the browser**.
@@ -28,7 +28,19 @@ page text / video captions / uploaded audio
 captions). Without captions, a direct video file or an uploaded file up to 25 MB is transcribed
 with the user's OpenAI key.
 
-**Caching:** verdicts are cached on the user's device for 7 days, keyed by claim + model.
+**Caching:** verdicts are cached on the user's device for 7 days, keyed by claim + model + mode.
+
+**Economy mode (default on):** a small model (Claude Haiku 5.5 / GPT-5.6 Luna) extracts claims
+*and* writes their search queries in one call; the main model (Claude Sonnet 5.5 / GPT-5.6 Sol)
+only judges evidence. Pages are capped at 20k characters and verdicts see the top 5 papers with
+shorter abstracts. In tests this cut AI calls per 2-claim page from 5 to 3 and input text by 64%,
+with the biggest step moved to the cheap model.
+
+| | Full | Economy |
+|---|---|---|
+| Claim extraction | main model, 60k chars | fast model, 20k chars, also writes queries |
+| Query rewriting | 1 call per claim (main) | merged into extraction |
+| Verdict | main model, top 8 papers × 1,500 chars | main model, top 5 papers × 800 chars |
 
 ## Code
 ```

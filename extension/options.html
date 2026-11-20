@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Fact Checker settings</title>
+  <title>Academic Paper Fact Checker settings</title>
   <style>
     body { font: 14px system-ui, sans-serif; max-width: 540px; margin: 24px auto; padding: 0 16px; color: #1c1c1e; }
     h2 { margin-bottom: 4px; }
@@ -13,6 +13,8 @@
     .radio { display: flex; gap: 16px; margin-top: 6px; }
     .radio label { display: flex; align-items: center; gap: 6px; font-weight: 400; margin: 0; }
     .radio input { width: auto; }
+    label.check { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+    label.check input { width: auto; margin: 0; }
     .buttons { margin-top: 18px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     button { padding: 8px 14px; font: inherit; border-radius: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
     button.primary { background: #4a6cf7; color: #fff; border-color: #4a6cf7; }
@@ -25,7 +27,7 @@
   </style>
 </head>
 <body>
-  <h2>Fact Checker settings</h2>
+  <h2>Academic Paper Fact Checker settings</h2>
 
   <h3>Your AI key</h3>
   <div class="radio">
@@ -37,9 +39,10 @@
   <input id="llmKey" type="password" autocomplete="off" spellcheck="false" />
   <small id="key-help"></small>
 
-  <label for="llmModel">Model (optional)</label>
-  <input id="llmModel" spellcheck="false" />
-  <small>Leave blank for the default.</small>
+  <label class="check"><input type="checkbox" id="economy" /> Economy mode (recommended)</label>
+  <small>Uses a small, cheap model to find claims and write search queries, and sends less text.
+    The main model still judges the evidence. Roughly a third of the cost per check.</small>
+
 
   <h3>Paper search key (recommended, free)</h3>
   <label for="openalexKey">OpenAlex API key</label>
@@ -48,7 +51,7 @@
 
   <div class="note">
     <strong>Where your key goes:</strong> it's stored only in this browser (not synced) and sent only to
-    your AI provider (api.anthropic.com or api.openai.com). There is no Fact Checker server; the extension's
+    your AI provider (api.anthropic.com or api.openai.com). There is no Academic Paper Fact Checker server; the extension's
     developer never sees your key or what you check.
     <ul>
       <li>Create a separate key just for this extension.</li>
@@ -66,13 +69,23 @@
 
   <details>
     <summary>More</summary>
+    <label for="llmModel">Main model (optional)</label>
+    <input id="llmModel" spellcheck="false" />
+    <small>Judges the evidence. Leave blank for the default.</small>
+
+    <div id="fast-row">
+      <label for="fastModel">Economy model (optional)</label>
+      <input id="fastModel" spellcheck="false" />
+      <small>Finds claims and writes search queries. Leave blank for the default.</small>
+    </div>
+
     <label for="s2Key">Semantic Scholar API key (optional)</label>
     <input id="s2Key" type="password" autocomplete="off" spellcheck="false" />
     <small>Works without one, using a shared public limit.</small>
 
     <label for="maxClaims">Claims to check per page</label>
     <input id="maxClaims" type="number" min="1" max="10" />
-    <small>Each claim costs about 2 AI calls on your key.</small>
+    <small>Each claim costs one or two AI calls on your key.</small>
 
     <div class="buttons"><button id="clear-cache">Clear saved results</button></div>
   </details>

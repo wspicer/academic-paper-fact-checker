@@ -1,4 +1,4 @@
-import { loadSettings, saveSettings, llmFrom } from "./lib/settings.js";
+import { loadSettings, saveSettings, modelsFrom } from "./lib/settings.js";
 import { PROVIDERS, callLLM } from "./lib/llm.js";
 import { cacheClear } from "./lib/cache.js";
 
@@ -16,6 +16,8 @@ function provider() {
 function showProvider() {
   $("key-help").textContent = HELP[provider()];
   $("llmModel").placeholder = PROVIDERS[provider()].defaultModel;
+  $("fastModel").placeholder = PROVIDERS[provider()].fastModel;
+  $("fast-row").hidden = !$("economy").checked;
 }
 
 function say(msg, ok) {
@@ -34,7 +36,8 @@ function looksWrong(p, key) {
 async function init() {
   const s = await loadSettings();
   document.querySelector(`input[name=provider][value=${s.provider}]`).checked = true;
-  for (const f of ["llmKey", "llmModel", "openalexKey", "s2Key", "maxClaims"]) $(f).value = s[f];
+  for (const f of ["llmKey", "llmModel", "fastModel", "openalexKey", "s2Key", "maxClaims"]) $(f).value = s[f];
+  $("economy").checked = s.economy;
   showProvider();
 }
 
@@ -44,11 +47,13 @@ async function save() {
     provider: p,
     llmKey: clean($("llmKey").value),
     llmModel: clean($("llmModel").value),
+    fastModel: clean($("fastModel").value),
+    economy: $("economy").checked,
     openalexKey: clean($("openalexKey").value),
     s2Key: clean($("s2Key").value),
     maxClaims: Math.max(1, Math.min(10, parseInt($("maxClaims").value, 10) || 5)),
   };
-  for (const f of ["llmKey", "llmModel", "openalexKey", "s2Key"]) $(f).value = values[f];
+  for (const f of ["llmKey", "llmModel", "fastModel", "openalexKey", "s2Key"]) $(f).value = values[f];
   await saveSettings(values);
   const warning = looksWrong(p, values.llmKey);
   warning ? say(`Saved, but: ${warning}`, false) : say("Saved ✓", true);
@@ -60,9 +65,12 @@ async function test() {
   if (!s.llmKey) return say("Enter a key first.", false);
   say("Testing…", true);
   try {
-    const llm = llmFrom(s);
-    await callLLM(llm, 'Reply with the JSON {"ok": true}.', "ping", 20);
-    say(`Key works ✓ (${llm.model})`, true);
+    const models = modelsFrom(s);
+    // test every model the checks will use, so a typo in either name shows up now
+    const used = [...new Set([models.main.model, models.fast.model])];
+    for (const llm of [models.main, models.fast].filter((m, i, a) => a.findIndex((x) => x.model === m.model) === i))
+      await callLLM(llm, 'Reply with the JSON {"ok": true}.', "ping", 20);
+    say(`Key works ✓ (${used.join(" + ")})`, true);
   } catch (e) {
     say(e.message, false);
   }
@@ -72,9 +80,11 @@ document.querySelectorAll("input[name=provider]").forEach(
   (r) =>
     (r.onchange = () => {
       $("llmModel").value = ""; // a model name only makes sense for its own provider
+      $("fastModel").value = "";
       showProvider();
     })
 );
+$("economy").onchange = showProvider;
 $("save").onclick = save;
 $("test").onclick = test;
 $("clear").onclick = async () => {

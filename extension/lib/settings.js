@@ -1,13 +1,15 @@
 // All settings, including keys, live in chrome.storage.local: this browser only, never synced.
-import { PROVIDERS, resolveLLM } from "./llm.js";
+import { PROVIDERS, resolveModels } from "./llm.js";
 
 export const DEFAULTS = {
   provider: "anthropic",
   llmKey: "",
   llmModel: "",
+  fastModel: "",
+  economy: true,
   openalexKey: "",
   s2Key: "",
-  maxClaims: 5,
+  maxClaims: 3,
 };
 
 export async function loadSettings() {
@@ -20,8 +22,10 @@ export function saveSettings(values) {
   return chrome.storage.local.set(values);
 }
 
-export function llmFrom(s) {
-  return resolveLLM({ provider: s.provider, key: s.llmKey, model: s.llmModel });
+export function modelsFrom(s) {
+  return resolveModels({
+    provider: s.provider, key: s.llmKey, model: s.llmModel, fastModel: s.fastModel, economy: s.economy,
+  });
 }
 
 export function searchKeys(s) {
