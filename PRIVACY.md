@@ -36,4 +36,4 @@ check reads no text and sends nothing anywhere.
   add the right-click "Fact-check selected text" option, and run on the page you're viewing.
 
 ## Contact
-Open an issue at https://github.com/wspicer/science-fact-checker
+Open an issue at https://github.com/wspicer/academic-paper-fact-checker
